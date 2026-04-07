@@ -76,6 +76,15 @@ class BilibiliSubscribePlugin(Star):
         if not parsed:
             return
 
+        logger.info(
+            "bilibili_subscribe parsed user=%s session=%s room_id=%s mode=%s text=%s",
+            user_id,
+            session_id,
+            parsed.room_id,
+            parsed.mode,
+            text,
+        )
+
         if parsed.room_id is None:
             yield event.plain_result("我识别到你想订阅 Bilibili 直播间，但没有找到有效的直播间链接或房间号。")
             self._safe_stop(event)

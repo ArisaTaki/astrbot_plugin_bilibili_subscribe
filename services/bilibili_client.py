@@ -19,6 +19,11 @@ class RoomInfo:
 
 class BilibiliClient:
     ROOM_URL_RE = re.compile(r"(?:https?://)?live\.bilibili\.com/(\d+)", re.IGNORECASE)
+    ROOM_ID_HINT_PATTERNS = (
+        re.compile(r"(?:房间号|直播间|直播)\s*(?:是|为|:|：)?\s*(\d{3,12})", re.IGNORECASE),
+        re.compile(r"(?:订阅|关注)\s*(?:直播间|直播)\s*(\d{3,12})", re.IGNORECASE),
+    )
+    GENERIC_LONG_NUMBER_RE = re.compile(r"(?<!\d)(\d{5,12})(?!\d)")
 
     def __init__(self, timeout_seconds: float = 10.0):
         self.timeout_seconds = timeout_seconds
@@ -28,9 +33,22 @@ class BilibiliClient:
         if match:
             return int(match.group(1))
 
-        text = text.strip()
-        if text.isdigit():
-            return int(text)
+        stripped = text.strip()
+        if stripped.isdigit():
+            return int(stripped)
+
+        for pattern in self.ROOM_ID_HINT_PATTERNS:
+            match = pattern.search(text)
+            if match:
+                return int(match.group(1))
+
+        all_numbers = self.GENERIC_LONG_NUMBER_RE.findall(text)
+        if len(all_numbers) == 1:
+            return int(all_numbers[0])
+
+        if len(all_numbers) > 1:
+            return int(all_numbers[-1])
+
         return None
 
     async def get_room_info(self, room_id: int) -> RoomInfo:
