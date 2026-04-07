@@ -8,11 +8,11 @@ from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.star import Context, Star, register
 
-from config import BilibiliSubscribeConfig
-from services.bilibili_client import BilibiliClient, RoomInfo
-from services.intent_parser import IntentParser
-from services.subscription_manager import SubscriptionManager
-from utils.json_storage import JsonStorage
+from .config import BilibiliSubscribeConfig
+from .services.bilibili_client import BilibiliClient, RoomInfo
+from .services.intent_parser import IntentParser
+from .services.subscription_manager import SubscriptionManager
+from .utils.json_storage import JsonStorage
 
 
 @register(

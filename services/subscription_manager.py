@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from services.bilibili_client import RoomInfo
-from utils.json_storage import JsonStorage
+from .bilibili_client import RoomInfo
+from ..utils.json_storage import JsonStorage
 
 
 class SubscriptionManager:

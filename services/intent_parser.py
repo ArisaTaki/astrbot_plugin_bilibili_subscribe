@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from services.bilibili_client import BilibiliClient
+from .bilibili_client import BilibiliClient
 
 
 @dataclass
