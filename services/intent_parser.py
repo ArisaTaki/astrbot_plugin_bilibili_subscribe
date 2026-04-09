@@ -38,17 +38,17 @@ class IntentParser:
     @staticmethod
     def detect_mode(text: str) -> str | None:
         content = (text or "").strip().lower()
-        if any(keyword in content for keyword in ("私聊订阅", "私聊提醒", "私发", "私聊")):
+        if any(keyword in content for keyword in ("私聊订阅", "私聊提醒", "私发", "私聊", "私信", "私信提醒")):
             return "private"
-        if any(keyword in content for keyword in ("群订阅", "群提醒", "群里提醒", "群聊")):
+        if any(keyword in content for keyword in ("群订阅", "群提醒", "群里提醒", "群聊", "群里", "群内提醒")):
             return "group"
         return None
 
     @staticmethod
     def parse_mode_reply(text: str) -> str | None:
         content = (text or "").strip().lower()
-        if content in {"私聊", "私聊订阅", "私聊提醒", "private"}:
+        if content in {"私聊", "私聊订阅", "私聊提醒", "private", "dm", "私信"}:
             return "private"
-        if content in {"群订阅", "群聊", "群里", "群提醒", "group"}:
+        if content in {"群", "群订阅", "群聊", "群里", "群提醒", "group"}:
             return "group"
-        return None
+        return IntentParser.detect_mode(text)

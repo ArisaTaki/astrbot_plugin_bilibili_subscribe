@@ -1,10 +1,11 @@
 name: astrbot_plugin_bilibili_subscribe
-version: 0.1.0
+version: 0.2.0
 author: OpenAI
 repo: local
-summary: 根据自然语言订阅 Bilibili 直播间开播/下播提醒。
+summary: 供 Agent 调用的 Bilibili 直播间订阅工具。
 description: |
-  识别用户消息中的 Bilibili 直播间链接，询问私聊或群订阅，并定时推送开播/下播提醒。
+  在群聊中要求用户先 @ 机器人，由 Agent 判断是否调用本插件，
+  为指定 Bilibili 直播间创建私聊或群订阅，并定时推送开播/下播提醒。
 license: MIT
 homepage: https://github.com/yourname/astrbot_plugin_bilibili_subscribe
 tags:

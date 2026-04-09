@@ -1,4 +1,33 @@
 {
-  "subscriptions": [],
+  "subscriptions": [
+    {
+      "room_id": 32800932,
+      "room_url": "https://live.bilibili.com/32800932",
+      "user_id": "570490640",
+      "group_id": "1025151474",
+      "mode": "group",
+      "session_id": "1025151474",
+      "notify_origin": "elaina:GroupMessage:1025151474",
+      "created_at": "2026-04-09T17:00:14",
+      "last_live_status": 1,
+      "last_notified_status": 1,
+      "last_title": "免费帮帮我讲清楚没有。",
+      "last_uname": "房间32800932"
+    },
+    {
+      "room_id": 32800932,
+      "room_url": "https://live.bilibili.com/32800932",
+      "user_id": "570490640",
+      "group_id": null,
+      "mode": "private",
+      "session_id": "1025151474",
+      "notify_origin": "aiocqhttp:private_message:570490640",
+      "created_at": "2026-04-09T17:00:46",
+      "last_live_status": 1,
+      "last_notified_status": 1,
+      "last_title": "免费帮帮我讲清楚没有。",
+      "last_uname": "房间32800932"
+    }
+  ],
   "pending_confirmations": []
 }

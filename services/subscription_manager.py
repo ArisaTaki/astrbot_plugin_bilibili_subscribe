@@ -33,11 +33,21 @@ class SubscriptionManager:
         data["pending_confirmations"] = pendings
         await self.storage.save(data)
 
-    async def get_pending_confirmation(self, user_id: str, session_id: str) -> dict[str, Any] | None:
+    async def get_pending_confirmation(
+        self,
+        user_id: str,
+        session_id: str,
+        group_id: str | None = None,
+    ) -> dict[str, Any] | None:
         data = await self.storage.load() or self.default_payload()
         for pending in data.get("pending_confirmations", []):
             if pending.get("user_id") == user_id and pending.get("session_id") == session_id:
                 return pending
+
+        if group_id:
+            for pending in data.get("pending_confirmations", []):
+                if pending.get("user_id") == user_id and (pending.get("group_id") or "") == group_id:
+                    return pending
         return None
 
     async def remove_pending_confirmation(self, user_id: str, session_id: str) -> None:
@@ -51,6 +61,26 @@ class SubscriptionManager:
     async def count_user_subscriptions(self, user_id: str) -> int:
         subscriptions = await self.list_subscriptions()
         return sum(1 for item in subscriptions if item.get("user_id") == user_id)
+
+    async def find_subscription(
+        self,
+        *,
+        room_id: int,
+        user_id: str,
+        group_id: str | None,
+        mode: str,
+    ) -> dict[str, Any] | None:
+        subscriptions = await self.list_subscriptions()
+        for item in subscriptions:
+            if self._same_subscription_key(
+                item,
+                room_id=room_id,
+                user_id=user_id,
+                group_id=group_id,
+                mode=mode,
+            ):
+                return item
+        return None
 
     async def upsert_subscription(
         self,
@@ -68,11 +98,12 @@ class SubscriptionManager:
 
         found = None
         for item in subscriptions:
-            if (
-                item.get("room_id") == room_info.room_id
-                and item.get("user_id") == user_id
-                and item.get("mode") == mode
-                and (item.get("group_id") or "") == (group_id or "")
+            if self._same_subscription_key(
+                item,
+                room_id=room_info.room_id,
+                user_id=user_id,
+                group_id=group_id,
+                mode=mode,
             ):
                 found = item
                 break
@@ -127,13 +158,31 @@ class SubscriptionManager:
 
     @staticmethod
     def _same_subscription(left: dict[str, Any], right: dict[str, Any]) -> bool:
-        return (
-            left.get("room_id") == right.get("room_id")
-            and left.get("user_id") == right.get("user_id")
-            and (left.get("group_id") or "") == (right.get("group_id") or "")
-            and left.get("mode") == right.get("mode")
+        return SubscriptionManager._same_subscription_key(
+            left,
+            room_id=int(right.get("room_id") or 0),
+            user_id=str(right.get("user_id") or ""),
+            group_id=str(right.get("group_id") or "") or None,
+            mode=str(right.get("mode") or ""),
         )
 
     @staticmethod
     def _same_pending_scope(left: dict[str, Any], right: dict[str, Any]) -> bool:
         return left.get("user_id") == right.get("user_id") and left.get("session_id") == right.get("session_id")
+
+    @staticmethod
+    def _same_subscription_key(
+        item: dict[str, Any],
+        *,
+        room_id: int,
+        user_id: str,
+        group_id: str | None,
+        mode: str,
+    ) -> bool:
+        if item.get("room_id") != room_id or item.get("mode") != mode:
+            return False
+
+        if mode == "group":
+            return (item.get("group_id") or "") == (group_id or "")
+
+        return item.get("user_id") == user_id
