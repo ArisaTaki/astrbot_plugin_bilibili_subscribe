@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,12 @@ from .services.bilibili_client import BilibiliClient, RoomInfo
 from .services.intent_parser import IntentParser
 from .services.subscription_manager import SubscriptionManager
 from .utils.json_storage import JsonStorage
+
+
+@dataclass
+class ReplyPayload:
+    text: str
+    image_url: str = ""
 
 
 @register(
@@ -55,7 +62,7 @@ class BilibiliSubscribePlugin(Star):
         text = self._extract_text_after_command(getattr(event, "message_str", ""))
         result = await self._handle_command_request(event, text)
         if result:
-            yield event.plain_result(result)
+            yield self._render_event_result(event, result)
             self._safe_stop(event)
 
     @filter.llm_tool(name="subscribe_bilibili_live_room")
@@ -79,20 +86,21 @@ class BilibiliSubscribePlugin(Star):
         if not self._can_process_direct_request(event):
             return "群聊里只有在用户明确 @ 机器人后，才能使用 Bilibili 订阅功能。"
 
-        return await self._handle_subscription_request(
+        result = await self._handle_subscription_request(
             event,
             room_reference,
             mode=mode,
             remark=remark,
             allow_pending=True,
         )
+        return self._result_text(result)
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message(self, event: AstrMessageEvent):
         pending_handled, result = await self._handle_pending_confirmation(event)
         if pending_handled:
             if result:
-                yield event.plain_result(result)
+                yield self._render_event_result(event, result)
             self._safe_stop(event)
             return
 
@@ -101,11 +109,11 @@ class BilibiliSubscribePlugin(Star):
 
         result = await self._handle_direct_intent_fallback(event)
         if result:
-            yield event.plain_result(result)
+            yield self._render_event_result(event, result)
             self._safe_stop(event)
             return
 
-    async def _handle_command_request(self, event: AstrMessageEvent, text: str) -> str | None:
+    async def _handle_command_request(self, event: AstrMessageEvent, text: str) -> str | ReplyPayload | None:
         await self.subscription_manager.initialize()
 
         if not text.strip():
@@ -113,7 +121,7 @@ class BilibiliSubscribePlugin(Star):
 
         return await self._handle_subscription_request(event, text, allow_pending=True)
 
-    async def _handle_direct_intent_fallback(self, event: AstrMessageEvent) -> str | None:
+    async def _handle_direct_intent_fallback(self, event: AstrMessageEvent) -> str | ReplyPayload | None:
         text = getattr(event, "message_str", "") or ""
         parsed = self.intent_parser.parse_subscribe_intent(text)
         if not parsed:
@@ -129,7 +137,7 @@ class BilibiliSubscribePlugin(Star):
         )
         return await self._handle_subscription_request(event, text, mode=parsed.mode or "", allow_pending=True)
 
-    async def _handle_pending_confirmation(self, event: AstrMessageEvent) -> tuple[bool, str | None]:
+    async def _handle_pending_confirmation(self, event: AstrMessageEvent) -> tuple[bool, str | ReplyPayload | None]:
         await self.subscription_manager.initialize()
 
         user_id = self._get_user_id(event)
@@ -151,6 +159,20 @@ class BilibiliSubscribePlugin(Star):
             remark = str(pending.get("remark") or "")
             return True, await self._handle_subscription_request(event, text, mode=mode, remark=remark, allow_pending=True)
 
+        if pending_type == "remark":
+            skip_remark, parsed_remark = self.intent_parser.parse_remark_reply(text)
+            if not skip_remark and parsed_remark is None:
+                return True, self._remark_prompt_text()
+
+            await self.subscription_manager.remove_pending_confirmation(pending["user_id"], pending["session_id"])
+            final_remark = "" if skip_remark else parsed_remark or ""
+            return True, await self._create_subscription(
+                event,
+                int(pending["room_id"]),
+                str(pending["mode"]),
+                final_remark,
+            )
+
         mode = self.intent_parser.parse_mode_reply(text)
         if mode is None:
             return True, "请回复“私聊”或“群订阅”。"
@@ -165,7 +187,7 @@ class BilibiliSubscribePlugin(Star):
         mode: str = "",
         remark: str = "",
         allow_pending: bool,
-    ) -> str:
+    ) -> str | ReplyPayload:
         await self.subscription_manager.initialize()
 
         requested_mode = self._normalize_mode(mode) or self.intent_parser.detect_mode(text)
@@ -207,6 +229,19 @@ class BilibiliSubscribePlugin(Star):
                 )
                 return "要订阅到哪里？请回复“私聊”或“群订阅”。"
 
+        permission_error = self._validate_subscription_permission(event, requested_mode)
+        if permission_error:
+            return permission_error
+
+        if allow_pending and not requested_remark:
+            await self._save_pending_confirmation(
+                event,
+                pending_type="remark",
+                room_id=room_id,
+                mode=requested_mode,
+            )
+            return self._remark_prompt_text()
+
         logger.info(
             "bilibili_subscribe request user=%s session=%s room_id=%s mode=%s text=%s",
             self._get_user_id(event),
@@ -242,11 +277,32 @@ class BilibiliSubscribePlugin(Star):
             payload["room_url"] = f"https://live.bilibili.com/{room_id}"
         await self.subscription_manager.add_pending_confirmation(payload)
 
-    async def _finalize_pending_subscription(self, event: AstrMessageEvent, pending: dict[str, Any], mode: str) -> str:
+    async def _finalize_pending_subscription(
+        self,
+        event: AstrMessageEvent,
+        pending: dict[str, Any],
+        mode: str,
+    ) -> str | ReplyPayload:
         await self.subscription_manager.remove_pending_confirmation(pending["user_id"], pending["session_id"])
-        return await self._create_subscription(event, int(pending["room_id"]), mode, str(pending.get("remark") or ""))
+        remark = str(pending.get("remark") or "")
+        if remark:
+            return await self._create_subscription(event, int(pending["room_id"]), mode, remark)
 
-    async def _create_subscription(self, event: AstrMessageEvent, room_id: int, mode: str, remark: str = "") -> str:
+        await self._save_pending_confirmation(
+            event,
+            pending_type="remark",
+            room_id=int(pending["room_id"]),
+            mode=mode,
+        )
+        return self._remark_prompt_text()
+
+    async def _create_subscription(
+        self,
+        event: AstrMessageEvent,
+        room_id: int,
+        mode: str,
+        remark: str = "",
+    ) -> str | ReplyPayload:
         user_id = self._get_user_id(event)
         group_id = self._get_group_id(event) if mode == "group" else None
         normalized_remark = self._normalize_remark(remark)
@@ -304,8 +360,10 @@ class BilibiliSubscribePlugin(Star):
             f"已为你创建{mode_text}：{display_name}{anchor_suffix} / {room_info.room_url}\n"
             f"当前状态：{self._status_text(room_info.live_status)}"
         )
+        if room_info.live_status == 1:
+            result += "\n说明：该直播间当前正在直播，后续下播或再次开播时会继续提醒。"
         logger.info("subscription created user=%s room_id=%s mode=%s subscription=%s", user_id, room_id, mode, subscription)
-        return result
+        return ReplyPayload(text=result, image_url=room_info.cover_url)
 
     async def _polling_loop(self) -> None:
         await self.subscription_manager.initialize()
@@ -509,6 +567,23 @@ class BilibiliSubscribePlugin(Star):
             return None
         return f"{platform_name}:private_message:{user_id}"
 
+    @staticmethod
+    def _result_text(result: str | ReplyPayload) -> str:
+        if isinstance(result, ReplyPayload):
+            return result.text
+        return result
+
+    def _render_event_result(self, event: AstrMessageEvent, result: str | ReplyPayload):
+        if not isinstance(result, ReplyPayload):
+            return event.plain_result(result)
+
+        if result.image_url:
+            chain_result = getattr(event, "chain_result", None)
+            if callable(chain_result):
+                return chain_result([Plain(result.text), Image.fromURL(result.image_url)])
+
+        return event.plain_result(result.text)
+
     def _validate_subscription_permission(self, event: AstrMessageEvent, mode: str) -> str | None:
         if mode == "group":
             if not self._get_group_id(event):
@@ -580,3 +655,7 @@ class BilibiliSubscribePlugin(Star):
                 return "{" + key + "}"
 
         return str(template).format_map(_SafeDict(kwargs))
+
+    @staticmethod
+    def _remark_prompt_text() -> str:
+        return "要加备注吗？请回复备注名，或回复“跳过”。"

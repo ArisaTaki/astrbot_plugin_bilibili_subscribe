@@ -33,6 +33,19 @@ class IntentParser:
         "群里",
         "群内提醒",
     )
+    REMARK_SKIP_REPLIES = {
+        "跳过",
+        "skip",
+        "不用",
+        "不用备注",
+        "不加备注",
+        "不需要",
+        "不需要备注",
+        "无需备注",
+        "无",
+        "没有",
+        "none",
+    }
 
     def __init__(self, bilibili_client: BilibiliClient):
         self.bilibili_client = bilibili_client
@@ -96,6 +109,25 @@ class IntentParser:
         if content in {"群", "群订阅", "群聊", "群里", "群提醒", "group"}:
             return "group"
         return IntentParser.detect_mode(text)
+
+    @classmethod
+    def parse_remark_reply(cls, text: str) -> tuple[bool, str | None]:
+        normalized = cls._normalize_remark(text)
+        if not normalized:
+            return False, None
+
+        if normalized.lower() in cls.REMARK_SKIP_REPLIES:
+            return True, ""
+
+        remark = cls.extract_remark(text) or normalized
+        normalized_remark = cls._normalize_remark(remark)
+        if not normalized_remark:
+            return False, None
+
+        if normalized_remark.lower() in cls.REMARK_SKIP_REPLIES:
+            return True, ""
+
+        return False, normalized_remark
 
     @staticmethod
     def _normalize_remark(value: str) -> str:
