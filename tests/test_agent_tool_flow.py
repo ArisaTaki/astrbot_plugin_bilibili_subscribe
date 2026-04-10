@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import types
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
@@ -335,7 +336,7 @@ class AgentToolFlowTests(IsolatedAsyncioTestCase):
                 "room_url": "https://live.bilibili.com/123456",
                 "origin": "qq:group:group-1",
                 "platform_name": "qq",
-                "created_at": "2026-04-09T12:00:00",
+                "created_at": datetime.now().isoformat(timespec="seconds"),
             }
         )
 
@@ -372,7 +373,7 @@ class AgentToolFlowTests(IsolatedAsyncioTestCase):
                 "pending_type": "room_id",
                 "origin": "qq:group:group-1",
                 "platform_name": "qq",
-                "created_at": "2026-04-09T12:00:00",
+                "created_at": datetime.now().isoformat(timespec="seconds"),
             }
         )
 
@@ -384,6 +385,90 @@ class AgentToolFlowTests(IsolatedAsyncioTestCase):
         self.assertIsNotNone(pending)
         self.assertEqual(pending["pending_type"], "mode")
         self.assertEqual(pending["room_id"], 32800932)
+
+    async def test_invalid_pending_room_reply_cancels_flow(self):
+        await self.plugin.subscription_manager.add_pending_confirmation(
+            {
+                "user_id": "user-1",
+                "session_id": "session-1",
+                "group_id": "group-1",
+                "room_id": None,
+                "mode": None,
+                "pending_type": "room_id",
+                "origin": "qq:group:group-1",
+                "platform_name": "qq",
+                "created_at": datetime.now().isoformat(timespec="seconds"),
+            }
+        )
+
+        reply_event = FakeEvent(message_str="哦对", message_components=[])
+        results = [item async for item in self.plugin.on_message(reply_event)]
+        pending = await self.plugin.subscription_manager.get_pending_confirmation("user-1", "session-1", "group-1")
+
+        self.assertEqual(results, [])
+        self.assertIsNone(pending)
+
+    async def test_invalid_pending_mode_reply_cancels_flow(self):
+        await self.plugin.subscription_manager.add_pending_confirmation(
+            {
+                "user_id": "user-1",
+                "session_id": "session-1",
+                "group_id": "group-1",
+                "room_id": 32800932,
+                "pending_type": "mode",
+                "room_url": "https://live.bilibili.com/32800932",
+                "origin": "qq:group:group-1",
+                "platform_name": "qq",
+                "created_at": datetime.now().isoformat(timespec="seconds"),
+            }
+        )
+
+        reply_event = FakeEvent(message_str="哈哈", message_components=[])
+        results = [item async for item in self.plugin.on_message(reply_event)]
+        pending = await self.plugin.subscription_manager.get_pending_confirmation("user-1", "session-1", "group-1")
+
+        self.assertEqual(results, [])
+        self.assertIsNone(pending)
+
+    async def test_expired_pending_is_cleared_and_fresh_request_can_restart(self):
+        await self.plugin.subscription_manager.add_pending_confirmation(
+            {
+                "user_id": "user-1",
+                "session_id": "session-1",
+                "group_id": None,
+                "room_id": 32800932,
+                "mode": "private",
+                "pending_type": "remark",
+                "origin": "qq:private_message:user-1",
+                "platform_name": "qq",
+                "created_at": datetime.now().isoformat(timespec="seconds"),
+            }
+        )
+        self.plugin.bilibili_client.get_room_info = AsyncMock(
+            return_value=RoomInfo(
+                room_id=32800932,
+                room_url="https://live.bilibili.com/32800932",
+                title="测试直播间",
+                uname="测试主播",
+                live_status=1,
+                area_name="测试分区",
+                cover_url="https://example.com/cover.jpg",
+            )
+        )
+
+        with patch("astrbot_plugin_bilibili_subscribe.main.datetime") as mocked_datetime:
+            mocked_datetime.now.return_value = datetime.fromisoformat("2026-04-09T12:04:00")
+            mocked_datetime.fromisoformat.side_effect = datetime.fromisoformat
+            restart_event = FakeEvent(message_str="帮我订阅直播间 32800932 备注夏老板", group_id=None)
+            results = [item async for item in self.plugin.on_message(restart_event)]
+
+        pending = await self.plugin.subscription_manager.get_pending_confirmation("user-1", "session-1")
+        subscriptions = await self.plugin.subscription_manager.list_subscriptions()
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["type"], "chain")
+        self.assertIsNone(pending)
+        self.assertEqual(len(subscriptions), 1)
 
     async def test_group_subscription_is_unique_per_group_room_and_mode(self):
         await self.plugin.subscription_manager.add_pending_confirmation(
@@ -397,7 +482,7 @@ class AgentToolFlowTests(IsolatedAsyncioTestCase):
                 "room_url": "https://live.bilibili.com/32800932",
                 "origin": "qq:group:group-1",
                 "platform_name": "qq",
-                "created_at": "2026-04-09T12:00:00",
+                "created_at": datetime.now().isoformat(timespec="seconds"),
             }
         )
         self.plugin.bilibili_client.get_room_info = AsyncMock(
@@ -582,7 +667,7 @@ class AgentToolFlowTests(IsolatedAsyncioTestCase):
                 "room_url": "https://live.bilibili.com/32800932",
                 "origin": "qq:group:group-1",
                 "platform_name": "qq",
-                "created_at": "2026-04-09T12:00:00",
+                "created_at": datetime.now().isoformat(timespec="seconds"),
             }
         )
 
@@ -606,7 +691,7 @@ class AgentToolFlowTests(IsolatedAsyncioTestCase):
                 "pending_type": "remark",
                 "origin": "qq:private_message:user-1",
                 "platform_name": "qq",
-                "created_at": "2026-04-09T12:00:00",
+                "created_at": datetime.now().isoformat(timespec="seconds"),
             }
         )
         self.plugin.bilibili_client.get_room_info = AsyncMock(

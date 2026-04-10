@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +32,8 @@ class ReplyPayload:
     "0.3.0",
 )
 class BilibiliSubscribePlugin(Star):
+    PENDING_CONFIRMATION_TIMEOUT_SECONDS = 180
+
     def __init__(self, context: Context, config: Any = None):
         super().__init__(context)
         self.context = context
@@ -146,13 +149,18 @@ class BilibiliSubscribePlugin(Star):
         if not pending:
             return False, None
 
+        if self._is_pending_expired(pending):
+            await self.subscription_manager.remove_pending_confirmation(pending["user_id"], pending["session_id"])
+            return False, None
+
         text = getattr(event, "message_str", "") or ""
         pending_type = str(pending.get("pending_type") or ("mode" if pending.get("room_id") else "room_id"))
 
         if pending_type == "room_id":
             room_id = self.bilibili_client.extract_room_id(text)
             if room_id is None:
-                return True, "目前只支持订阅 Bilibili 直播间。请直接发送直播间链接或房间号。"
+                await self.subscription_manager.remove_pending_confirmation(pending["user_id"], pending["session_id"])
+                return False, None
 
             await self.subscription_manager.remove_pending_confirmation(pending["user_id"], pending["session_id"])
             mode = str(pending.get("mode") or "")
@@ -162,7 +170,8 @@ class BilibiliSubscribePlugin(Star):
         if pending_type == "remark":
             skip_remark, parsed_remark = self.intent_parser.parse_remark_reply(text)
             if not skip_remark and parsed_remark is None:
-                return True, self._remark_prompt_text()
+                await self.subscription_manager.remove_pending_confirmation(pending["user_id"], pending["session_id"])
+                return False, None
 
             await self.subscription_manager.remove_pending_confirmation(pending["user_id"], pending["session_id"])
             final_remark = "" if skip_remark else parsed_remark or ""
@@ -175,7 +184,8 @@ class BilibiliSubscribePlugin(Star):
 
         mode = self.intent_parser.parse_mode_reply(text)
         if mode is None:
-            return True, "请回复“私聊”或“群订阅”。"
+            await self.subscription_manager.remove_pending_confirmation(pending["user_id"], pending["session_id"])
+            return False, None
 
         return True, await self._finalize_pending_subscription(event, pending, mode)
 
@@ -525,7 +535,6 @@ class BilibiliSubscribePlugin(Star):
 
     @staticmethod
     def _now_iso() -> str:
-        from datetime import datetime
         return datetime.now().isoformat(timespec="seconds")
 
     @staticmethod
@@ -675,3 +684,15 @@ class BilibiliSubscribePlugin(Star):
     @staticmethod
     def _remark_prompt_text() -> str:
         return "要加备注吗？请回复备注名，或回复“跳过”。"
+
+    @classmethod
+    def _is_pending_expired(cls, pending: dict[str, Any]) -> bool:
+        created_at = str(pending.get("created_at") or "").strip()
+        if not created_at:
+            return True
+        try:
+            created = datetime.fromisoformat(created_at)
+        except ValueError:
+            return True
+        elapsed = (datetime.now() - created).total_seconds()
+        return elapsed > cls.PENDING_CONFIRMATION_TIMEOUT_SECONDS
