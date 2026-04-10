@@ -450,7 +450,20 @@ class AgentToolFlowTests(IsolatedAsyncioTestCase):
 
         results = [item async for item in self.plugin.on_message(event)]
 
-        self.assertEqual(results, ["只有群管理员才能创建群订阅。"])
+        self.assertEqual(results, ["只有群管理员才能在群里创建订阅。普通成员如需订阅，请先添加机器人好友后在私聊中发起。"])
+
+    async def test_non_admin_group_request_is_rejected_before_follow_up(self):
+        event = FakeEvent(
+            message_str="@bot 订阅直播间 32800932",
+            message_components=[At("bot-123")],
+            is_admin=False,
+        )
+
+        results = [item async for item in self.plugin.on_message(event)]
+        pending = await self.plugin.subscription_manager.get_pending_confirmation("user-1", "session-1", "group-1")
+
+        self.assertEqual(results, ["只有群管理员才能在群里创建订阅。普通成员如需订阅，请先添加机器人好友后在私聊中发起。"])
+        self.assertIsNone(pending)
 
     async def test_private_subscription_requires_private_chat(self):
         event = FakeEvent(

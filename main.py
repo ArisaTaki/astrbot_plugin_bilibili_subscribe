@@ -195,6 +195,10 @@ class BilibiliSubscribePlugin(Star):
         if mode and requested_mode is None:
             return "提醒方式只支持 `private`/`私聊` 或 `group`/`群订阅`。"
 
+        early_permission_error = self._early_permission_error(event, requested_mode)
+        if early_permission_error:
+            return early_permission_error
+
         room_id = self.bilibili_client.extract_room_id(text)
         if room_id is None:
             if allow_pending:
@@ -594,6 +598,18 @@ class BilibiliSubscribePlugin(Star):
 
         if mode == "private" and not self._is_private_chat(event):
             return "私聊订阅请先添加机器人好友，再在私聊里发起。"
+
+        return None
+
+    def _early_permission_error(self, event: AstrMessageEvent, requested_mode: str | None) -> str | None:
+        if not self._get_group_id(event):
+            return None
+
+        if self._is_group_admin(event):
+            return None
+
+        if requested_mode in {None, "group"}:
+            return "只有群管理员才能在群里创建订阅。普通成员如需订阅，请先添加机器人好友后在私聊中发起。"
 
         return None
 
