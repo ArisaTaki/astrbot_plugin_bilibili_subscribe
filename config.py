@@ -6,10 +6,10 @@ from typing import Any
 
 @dataclass
 class BilibiliSubscribeConfig:
-    check_interval_seconds: int = 60
+    check_interval_seconds: int = 30
     max_subscriptions_per_user: int = 20
-    live_on_template: str = "【开播提醒】{title}\n主播：{uname}\n直播间：{room_url}"
-    live_off_template: str = "【下播提醒】{uname} 的直播已结束\n直播间：{room_url}"
+    live_on_template: str = "【开播提醒】{display_name} 开播了\n标题：{title}\n直播间：{room_url}"
+    live_off_template: str = "【下播提醒】{display_name} 下播了\n直播间：{room_url}"
     bilibili_api_timeout_seconds: float = 10.0
 
     @classmethod

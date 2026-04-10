@@ -2,7 +2,7 @@
   "check_interval_seconds": {
     "type": "int",
     "description": "检查直播间状态的间隔（秒）",
-    "default": 60,
+    "default": 30,
     "hint": "建议不要低于 15 秒"
   },
   "max_subscriptions_per_user": {
@@ -12,13 +12,13 @@
   },
   "live_on_template": {
     "type": "string",
-    "description": "开播提醒模板",
-    "default": "【开播提醒】{title}\n主播：{uname}\n直播间：{room_url}"
+    "description": "开播提醒模板，可用变量：{display_name} {remark} {uname} {title} {room_url} {room_id} {area_name} {cover_url}",
+    "default": "【开播提醒】{display_name} 开播了\n标题：{title}\n直播间：{room_url}"
   },
   "live_off_template": {
     "type": "string",
-    "description": "下播提醒模板",
-    "default": "【下播提醒】{uname} 的直播已结束\n直播间：{room_url}"
+    "description": "下播提醒模板，可用变量：{display_name} {remark} {uname} {title} {room_url} {room_id} {area_name} {cover_url}",
+    "default": "【下播提醒】{display_name} 下播了\n直播间：{room_url}"
   },
   "bilibili_api_timeout_seconds": {
     "type": "float",

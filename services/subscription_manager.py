@@ -89,6 +89,7 @@ class SubscriptionManager:
         user_id: str,
         group_id: str | None,
         mode: str,
+        remark: str,
         notify_origin: str,
         session_id: str,
     ) -> dict[str, Any]:
@@ -115,6 +116,7 @@ class SubscriptionManager:
                 "user_id": user_id,
                 "group_id": group_id,
                 "mode": mode,
+                "remark": remark,
                 "session_id": session_id,
                 "notify_origin": notify_origin,
                 "created_at": now,
@@ -122,16 +124,19 @@ class SubscriptionManager:
                 "last_notified_status": room_info.live_status,
                 "last_title": room_info.title,
                 "last_uname": room_info.uname,
+                "last_cover_url": room_info.cover_url,
             }
             subscriptions.append(found)
         else:
             found.update(
                 {
                     "room_url": room_info.room_url,
+                    "remark": remark,
                     "notify_origin": notify_origin,
                     "session_id": session_id,
                     "last_title": room_info.title,
                     "last_uname": room_info.uname,
+                    "last_cover_url": room_info.cover_url,
                 }
             )
 
@@ -145,6 +150,7 @@ class SubscriptionManager:
                 item["last_live_status"] = room_info.live_status
                 item["last_title"] = room_info.title
                 item["last_uname"] = room_info.uname
+                item["last_cover_url"] = room_info.cover_url
                 break
         await self.storage.save(data)
 
@@ -155,6 +161,15 @@ class SubscriptionManager:
                 item["last_notified_status"] = live_status
                 break
         await self.storage.save(data)
+
+    async def update_subscription_remark(self, subscription: dict[str, Any], remark: str) -> dict[str, Any] | None:
+        data = await self.storage.load() or self.default_payload()
+        for item in data.get("subscriptions", []):
+            if self._same_subscription(item, subscription):
+                item["remark"] = remark
+                await self.storage.save(data)
+                return item
+        return None
 
     @staticmethod
     def _same_subscription(left: dict[str, Any], right: dict[str, Any]) -> bool:

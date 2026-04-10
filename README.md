@@ -15,15 +15,18 @@
 - 供 Agent 调用的 Bilibili 直播订阅工具
 - 支持识别 Bilibili 直播间 URL 或房间号
 - 群聊中必须 `@机器人` 才会处理订阅请求
+- 群订阅仅限群管理员发起
+- 私聊订阅不限制身份，但需要先添加机器人好友，并在私聊中发起
 - 支持两种订阅模式：
   - 私聊订阅：提醒发送到用户私聊
   - 群订阅：提醒发送到当前群聊
+- 支持给订阅设置备注，通知时优先显示备注名
 - 唯一性规则：
   - 私聊订阅按 `用户 + 房间号 + 订阅方式` 去重
   - 群订阅按 `群号 + 房间号 + 订阅方式` 去重
 - 使用 JSON 文件持久化订阅数据
-- 定时轮询直播间状态
-- 开播/下播自动提醒
+- 定时轮询直播间状态（默认 `30` 秒）
+- 开播/下播自动提醒，并附带直播房封面
 - 支持可配置的检查间隔、提醒模板、最大订阅数
 
 ## 目录结构
@@ -52,6 +55,8 @@ astrbot_plugin_bilibili_subscribe/
 - `@机器人 帮我订阅这个 B 站直播间 123456`
 - `@机器人 订阅直播间 https://live.bilibili.com/123456 私聊`
 - `@机器人 订阅直播间 https://live.bilibili.com/123456 群订阅`
+- `@机器人 订阅直播间 32800932 群订阅 备注夏老板`
+- `我想订阅直播间 32800932，备注“夏老板”`（私聊内可直接发送）
 
 如果用户没有明确写订阅模式，插件会继续追问：
 
@@ -60,6 +65,14 @@ astrbot_plugin_bilibili_subscribe/
 如果用户一开始没有给直播间，插件会提示：
 
 - `目前只支持订阅 Bilibili 直播间。请把直播间链接或房间号发给我。`
+
+如果用户在群里要求创建私聊订阅，插件会提示：
+
+- `私聊订阅请先添加机器人好友，再在私聊里发起。`
+
+如果用户在群里不是管理员就要求创建群订阅，插件会提示：
+
+- `只有群管理员才能创建群订阅。`
 
 ## 数据存储结构
 
@@ -79,6 +92,7 @@ astrbot_plugin_bilibili_subscribe/
 - `user_id`
 - `group_id`（群订阅时存在）
 - `mode`
+- `remark`（可选，订阅备注）
 - `session_id`
 - `notify_origin`
 - `created_at`
@@ -86,25 +100,36 @@ astrbot_plugin_bilibili_subscribe/
 - `last_notified_status`
 - `last_title`
 - `last_uname`
+- `last_cover_url`
 
 ## 配置项
 
 AstrBot 支持通过 `_conf_schema.json` 自动注入插件配置。当前支持：
 
-- `check_interval_seconds`：检查直播状态间隔，默认 `60`
+- `check_interval_seconds`：检查直播状态间隔，默认 `30`
 - `max_subscriptions_per_user`：每个用户最大订阅数量，默认 `20`
 - `live_on_template`：开播提醒模板
 - `live_off_template`：下播提醒模板
 - `bilibili_api_timeout_seconds`：请求 Bilibili API 超时秒数
 
+提醒模板支持这些变量：
+
+- `{display_name}`：优先使用备注，否则使用主播名
+- `{remark}`：备注；未设置时为空字符串
+- `{uname}`：主播名
+- `{title}`：直播标题
+- `{room_url}` / `{room_id}`：直播间链接 / 房间号
+- `{area_name}`：分区名
+- `{cover_url}`：直播房封面 URL
+
 配置示例：
 
 ```json
 {
-  "check_interval_seconds": 60,
+  "check_interval_seconds": 30,
   "max_subscriptions_per_user": 20,
-  "live_on_template": "【开播提醒】{title}\n主播：{uname}\n直播间：{room_url}",
-  "live_off_template": "【下播提醒】{uname} 的直播已结束\n直播间：{room_url}",
+  "live_on_template": "【开播提醒】{display_name} 开播了\n标题：{title}\n直播间：{room_url}",
+  "live_off_template": "【下播提醒】{display_name} 下播了\n直播间：{room_url}",
   "bilibili_api_timeout_seconds": 10.0
 }
 ```
@@ -139,10 +164,13 @@ pip install -r requirements.txt
 3. 插件解析直播间链接或房间号
 4. 如果未提供直播间，插件会提示仅支持 Bilibili 直播间，并记录待补充房间号状态
 5. 如果未指定 `私聊` 或 `群订阅`，插件会记录待确认状态并询问用户
-6. 进入追问阶段后，用户继续直接回复即可，不必再次 `@机器人`
-7. 订阅成功后，后台定时任务按 `check_interval_seconds` 轮询直播间状态
-8. 若直播状态从非开播变为开播，则发送开播提醒
-9. 若直播状态从开播变为非开播，则发送下播提醒
+6. 如果带了 `备注/别名/昵称`，插件会一并记录，并在提醒时优先显示
+7. 进入追问阶段后，用户继续直接回复即可，不必再次 `@机器人`
+8. 创建群订阅前会校验当前发言者是否为群管理员
+9. 创建私聊订阅前会要求用户在私聊中发起，以确保机器人已加好友
+10. 订阅成功后，后台定时任务按 `check_interval_seconds` 轮询直播间状态
+11. 若直播状态从非开播变为开播，则发送开播提醒
+12. 若直播状态从开播变为非开播，则发送下播提醒
 
 ## 主动消息实现
 
@@ -167,7 +195,8 @@ pip install -r requirements.txt
    - 当前使用 `from astrbot.api.star import Context, Star, register`
 
 2. 主动发送消息：
-   - 当前使用 `await self.context.send_message(unified_msg_origin, MessageChain().message(...))`
+   - 当前使用 `await self.context.send_message(unified_msg_origin, MessageChain([...]))`
+   - 开播/下播提醒会拼接文本 + 封面图片
 
 3. 插件退出钩子：
    - 当前实现了 `terminate()` 以便取消后台轮询任务
@@ -184,10 +213,12 @@ pip install -r requirements.txt
 ## 返回消息示例
 
 - `已为你创建私聊订阅：主播名 / https://live.bilibili.com/123456`
-- `已为你创建群订阅：主播名 / https://live.bilibili.com/123456`
+- `已为你创建群订阅：夏老板（主播：主播名） / https://live.bilibili.com/123456`
 - `订阅失败：无法获取直播间信息`
 - `订阅失败：你已达到最大订阅数量限制（20）`
 - `要订阅到哪里？请回复“私聊”或“群订阅”。`
+- `只有群管理员才能创建群订阅。`
+- `私聊订阅请先添加机器人好友，再在私聊里发起。`
 
 ## 参考文档
 

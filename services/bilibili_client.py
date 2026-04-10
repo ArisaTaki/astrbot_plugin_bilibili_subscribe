@@ -16,6 +16,7 @@ class RoomInfo:
     uname: str
     live_status: int
     area_name: str
+    cover_url: str
 
 
 class BilibiliClient:
@@ -41,6 +42,15 @@ class BilibiliClient:
 
     def __init__(self, timeout_seconds: float = 10.0):
         self.timeout_seconds = timeout_seconds
+
+    @staticmethod
+    def _normalize_media_url(url: Any) -> str:
+        content = str(url or "").strip()
+        if not content:
+            return ""
+        if content.startswith("//"):
+            return f"https:{content}"
+        return content
 
     def extract_room_id(self, text: str) -> int | None:
         match = self.ROOM_URL_RE.search(text)
@@ -105,6 +115,12 @@ class BilibiliClient:
                         ),
                         live_status=int(data.get("live_status") or 0),
                         area_name=str(data.get("area_name") or ""),
+                        cover_url=self._normalize_media_url(
+                            data.get("user_cover")
+                            or data.get("cover")
+                            or data.get("keyframe")
+                            or data.get("background")
+                        ),
                     )
                 except httpx.HTTPStatusError as exc:
                     last_error = exc
