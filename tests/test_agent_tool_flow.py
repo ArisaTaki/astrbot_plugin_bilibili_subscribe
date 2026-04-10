@@ -508,22 +508,12 @@ class AgentToolFlowTests(IsolatedAsyncioTestCase):
         )
         duplicate_results = [item async for item in self.plugin.on_message(duplicate_event)]
         duplicate_pending = await self.plugin.subscription_manager.get_pending_confirmation("user-2", "session-2", "group-1")
-        self.assertEqual(duplicate_results, ["要加备注吗？请回复备注名，或回复“跳过”。"])
-        self.assertIsNotNone(duplicate_pending)
-        self.assertEqual(duplicate_pending["pending_type"], "remark")
-
-        duplicate_skip_event = FakeEvent(
-            message_str="跳过",
-            sender_id="user-2",
-            session_id="session-2",
-            message_components=[],
-        )
-        duplicate_skip_results = [item async for item in self.plugin.on_message(duplicate_skip_event)]
         subscriptions = await self.plugin.subscription_manager.list_subscriptions()
 
         self.assertEqual(len(first_results), 1)
         self.assertEqual(first_results[0]["type"], "chain")
-        self.assertEqual(duplicate_skip_results, ["这个直播间在当前群里已经订阅过了：https://live.bilibili.com/32800932"])
+        self.assertEqual(duplicate_results, ["这个直播间在当前群里已经订阅过了：https://live.bilibili.com/32800932"])
+        self.assertIsNone(duplicate_pending)
         self.assertEqual(len(subscriptions), 1)
 
     async def test_group_subscription_requires_admin(self):
@@ -679,6 +669,46 @@ class AgentToolFlowTests(IsolatedAsyncioTestCase):
         self.assertIsNotNone(pending)
         self.assertEqual(pending["pending_type"], "remark")
         self.assertEqual(pending["mode"], "group")
+
+    async def test_duplicate_group_subscription_is_rejected_after_mode_reply(self):
+        self.plugin.bilibili_client.get_room_info = AsyncMock(
+            return_value=RoomInfo(
+                room_id=32800932,
+                room_url="https://live.bilibili.com/32800932",
+                title="测试直播间",
+                uname="测试主播",
+                live_status=1,
+                area_name="测试分区",
+                cover_url="https://example.com/cover.jpg",
+            )
+        )
+        first_event = FakeEvent(
+            message_str="@bot 帮我订阅直播间 32800932 群订阅 备注巡音",
+            message_components=[At("bot-123")],
+        )
+        first_results = [item async for item in self.plugin.on_message(first_event)]
+
+        ask_event = FakeEvent(
+            message_str="@bot 我想订阅一下直播，地址是 https://live.bilibili.com/32800932",
+            sender_id="user-2",
+            session_id="session-2",
+            message_components=[At("bot-123")],
+        )
+        ask_results = [item async for item in self.plugin.on_message(ask_event)]
+        reply_event = FakeEvent(
+            message_str="群订阅",
+            sender_id="user-2",
+            session_id="session-2",
+            message_components=[],
+        )
+        reply_results = [item async for item in self.plugin.on_message(reply_event)]
+        pending = await self.plugin.subscription_manager.get_pending_confirmation("user-2", "session-2", "group-1")
+
+        self.assertEqual(len(first_results), 1)
+        self.assertEqual(first_results[0]["type"], "chain")
+        self.assertEqual(ask_results, ["要订阅到哪里？请回复“私聊”或“群订阅”。"])
+        self.assertEqual(reply_results, ["这个直播间在当前群里已经订阅过了：https://live.bilibili.com/32800932"])
+        self.assertIsNone(pending)
 
     async def test_remark_skip_creates_subscription_with_cover(self):
         await self.plugin.subscription_manager.add_pending_confirmation(

@@ -247,6 +247,10 @@ class BilibiliSubscribePlugin(Star):
         if permission_error:
             return permission_error
 
+        duplicate_result = await self._existing_subscription_result(event, room_id, requested_mode, requested_remark)
+        if duplicate_result:
+            return duplicate_result
+
         if allow_pending and not requested_remark:
             await self._save_pending_confirmation(
                 event,
@@ -298,17 +302,53 @@ class BilibiliSubscribePlugin(Star):
         mode: str,
     ) -> str | ReplyPayload:
         await self.subscription_manager.remove_pending_confirmation(pending["user_id"], pending["session_id"])
+        room_id = int(pending["room_id"])
         remark = str(pending.get("remark") or "")
+        duplicate_result = await self._existing_subscription_result(event, room_id, mode, remark)
+        if duplicate_result:
+            return duplicate_result
+
         if remark:
-            return await self._create_subscription(event, int(pending["room_id"]), mode, remark)
+            return await self._create_subscription(event, room_id, mode, remark)
 
         await self._save_pending_confirmation(
             event,
             pending_type="remark",
-            room_id=int(pending["room_id"]),
+            room_id=room_id,
             mode=mode,
         )
         return self._remark_prompt_text()
+
+    async def _existing_subscription_result(
+        self,
+        event: AstrMessageEvent,
+        room_id: int,
+        mode: str,
+        remark: str = "",
+    ) -> str | None:
+        user_id = self._get_user_id(event)
+        group_id = self._get_group_id(event) if mode == "group" else None
+        normalized_remark = self._normalize_remark(remark)
+        existing = await self.subscription_manager.find_subscription(
+            room_id=room_id,
+            user_id=user_id,
+            group_id=group_id,
+            mode=mode,
+        )
+        if not existing:
+            return None
+
+        room_url = existing.get("room_url") or f"https://live.bilibili.com/{room_id}"
+        if normalized_remark and normalized_remark != str(existing.get("remark") or ""):
+            updated = await self.subscription_manager.update_subscription_remark(existing, normalized_remark)
+            display_name = self._display_name(updated or existing)
+            if mode == "group":
+                return f"这个直播间在当前群里已经订阅过了，已更新备注为“{display_name}”：{room_url}"
+            return f"你已经订阅过这个直播间了，已更新备注为“{display_name}”：{room_url}"
+
+        if mode == "group":
+            return f"这个直播间在当前群里已经订阅过了：{room_url}"
+        return f"你已经订阅过这个直播间了：{room_url}"
 
     async def _create_subscription(
         self,
@@ -325,23 +365,9 @@ class BilibiliSubscribePlugin(Star):
         if permission_error:
             return permission_error
 
-        existing = await self.subscription_manager.find_subscription(
-            room_id=room_id,
-            user_id=user_id,
-            group_id=group_id,
-            mode=mode,
-        )
-        if existing:
-            room_url = existing.get("room_url") or f"https://live.bilibili.com/{room_id}"
-            if normalized_remark and normalized_remark != str(existing.get("remark") or ""):
-                updated = await self.subscription_manager.update_subscription_remark(existing, normalized_remark)
-                display_name = self._display_name(updated or existing)
-                if mode == "group":
-                    return f"这个直播间在当前群里已经订阅过了，已更新备注为“{display_name}”：{room_url}"
-                return f"你已经订阅过这个直播间了，已更新备注为“{display_name}”：{room_url}"
-            if mode == "group":
-                return f"这个直播间在当前群里已经订阅过了：{room_url}"
-            return f"你已经订阅过这个直播间了：{room_url}"
+        duplicate_result = await self._existing_subscription_result(event, room_id, mode, normalized_remark)
+        if duplicate_result:
+            return duplicate_result
 
         current_count = await self.subscription_manager.count_user_subscriptions(user_id)
         if current_count >= self.plugin_config.max_subscriptions_per_user:
